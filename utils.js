@@ -428,6 +428,10 @@ const CONSTANTS = {
     PRINT_BILL_QTY: '.print-bill-qty .w_U9_0.w_sD6D.w_QcqU',
     PRINT_BILL_PRICE: '.print-bill-price .w_U9_0.w_sD6D.w_QcqU',
     VISIBLE_ITEMS: '[data-testid="itemtile-stack"] [data-testid="productName"] span',
+    VISIBLE_ITEM_STACK: '[data-testid="itemtile-stack"]',
+    VISIBLE_ITEM_NAME: '[data-testid="productName"]',
+    VISIBLE_ITEM_QTY: '.bill-item-quantity',
+    VISIBLE_ITEM_PRICE: '[data-testid="line-price"]',
     ITEM_STACK: '[data-testid="itemtile-stack"]',
     PRODUCT_LINK: 'a[link-identifier="itemClick"]',
 
@@ -495,6 +499,9 @@ const CONSTANTS = {
   // URL Parameters
   URLS: {
     WALMART_ORDERS: 'https://www.walmart.com/orders',
+    WALMART_ORDERS_CA: 'https://www.walmart.ca/orders',
+    WALMART_ORDER_DOMAINS: ['www.walmart.com', 'www.walmart.ca'],
+    WALMART_ORDERS_PATH: '/orders',
     WALMART_REVIEWS: 'https://chromewebstore.google.com/detail/walmart-invoice-exporter/bndkihecbbkoligeekekdgommmdllfpe/reviews',
   },
 
