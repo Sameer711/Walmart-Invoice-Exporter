@@ -218,6 +218,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 function scrapeOrderData() {
   const orderItems = [];
 
+  const parseQuantityValue = (value) => {
+    if (!value) return "";
+    const match = value.match(/[\d.]+/);
+    return match ? match[0] : value;
+  };
+
+  const toAbsoluteUrl = (href) => {
+    if (!href) return "N/A";
+    try {
+      return new URL(href, window.location.origin).href;
+    } catch (_error) {
+      return href;
+    }
+  };
+
   // Query the hidden print items list which contains reliable product data
   // This list is always present in the DOM (hidden via .dn class) and is populated on page load.
   // It provides a cleaner data structure compared to the complex interactive UI.
@@ -251,6 +266,32 @@ function scrapeOrderData() {
       price,
     });
   });
+
+  // Fallback for Walmart.ca/localized layouts where print items are missing or incomplete.
+  const hasCompleteItems = orderItems.some((item) => item.productName && item.price);
+  if (!hasCompleteItems) {
+    orderItems.length = 0;
+    const visibleItemStacks = document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_STACK);
+
+    visibleItemStacks.forEach((stack) => {
+      const productName = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_NAME)?.innerText?.trim() || "";
+      const quantityText = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_QTY)?.innerText?.trim() || "";
+      const priceText = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_PRICE)?.innerText?.trim() || "";
+      const linkElement = stack.querySelector(CONSTANTS.SELECTORS.PRODUCT_LINK);
+
+      if (!productName && !quantityText && !priceText) {
+        return;
+      }
+
+      orderItems.push({
+        productName,
+        productLink: toAbsoluteUrl(linkElement?.getAttribute("href") || linkElement?.href),
+        deliveryStatus: CONSTANTS.TEXT.DELIVERY_LABEL,
+        quantity: parseQuantityValue(quantityText),
+        price: priceText,
+      });
+    });
+  }
 
   /**
    * Finds order number using fallback selectors.
