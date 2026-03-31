@@ -674,6 +674,20 @@ function updateOrderCacheStatus(orderNumber) {
 const OrderDataFetcher = (() => {
   let downloadTab = null;
 
+  const isInvoiceDataUsable = (data) => {
+    if (!data || !Array.isArray(data.items) || data.items.length === 0) {
+      return false;
+    }
+
+    return data.items.some((item) => (
+      item?.productName &&
+      item?.quantity &&
+      item?.price &&
+      item?.productLink &&
+      item.productLink !== 'N/A'
+    ));
+  };
+
   const buildOrderUrls = (orderNumber) => {
     const ordersBaseUrl = AppState.currentOrdersUrl || CONSTANTS.URLS.WALMART_ORDERS;
     const baseUrl = `${ordersBaseUrl}/${orderNumber}`;
@@ -759,9 +773,14 @@ const OrderDataFetcher = (() => {
   const fetchOrderData = async (orderNumber, options = {}) => {
     const cachedData = await getCachedInvoice(orderNumber);
     if (cachedData) {
-      console.log(`Using cached data for order ${orderNumber}`);
-      updateOrderCacheStatus(orderNumber);
-      return cachedData;
+      if (!isInvoiceDataUsable(cachedData)) {
+        console.warn(`Cached data for order ${orderNumber} is incomplete. Refetching fresh data.`);
+        await deleteInvoiceCache(orderNumber);
+      } else {
+        console.log(`Using cached data for order ${orderNumber}`);
+        updateOrderCacheStatus(orderNumber);
+        return cachedData;
+      }
     }
 
     const [primaryUrl, fallbackUrl] = buildOrderUrls(orderNumber);
