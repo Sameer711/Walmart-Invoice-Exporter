@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+- **Feature:** Added support for Walmart Canada order pages (`walmart.ca`) alongside Walmart US (`walmart.com`)
+
+### Enhancements
+- **Enhancement:** Side panel now detects both `walmart.com/orders` and `walmart.ca/orders` as valid collection/download pages
+- **Enhancement:** Order tab switching now searches for both Walmart US and Canada order tabs
+- **Enhancement:** Added support for locale-prefixed order URLs (for example, `/en/orders`) so the panel no longer shows a false off-tab warning
+- **Enhancement:** Added visible-item extraction fallback for Walmart Canada layouts where print-item selectors are absent, restoring product name/qty/price/link export fields
+- **Enhancement:** Added cache validation for invoice item completeness; incomplete cached invoices are now discarded and refetched automatically
+
 ## [5.2] - February 3, 2026
 
 ### Features

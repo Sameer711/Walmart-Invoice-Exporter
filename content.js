@@ -180,6 +180,33 @@ const withImageBlocking = (handler) => async (request) => {
   return handler(request);
 };
 
+function hasUsableItemData(data) {
+  if (!data || !Array.isArray(data.items) || data.items.length === 0) {
+    return false;
+  }
+
+  return data.items.some((item) => (
+    item?.productName &&
+    item?.price &&
+    item?.quantity &&
+    item?.productLink &&
+    item.productLink !== "N/A"
+  ));
+}
+
+async function scrapeOrderDataWithRetry(maxAttempts = 10, delayMs = 400) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const data = scrapeOrderData();
+    const usable = hasUsableItemData(data);
+
+    if (usable || attempt === maxAttempts) {
+      return data;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
 const MessageHandlers = {
   [CONSTANTS.MESSAGES.COLLECT_ORDER_NUMBERS]: withImageBlocking(handleCollectOrderNumbers),
   [CONSTANTS.MESSAGES.CLICK_NEXT_BUTTON]: withImageBlocking(handleClickNextButton),
@@ -190,7 +217,7 @@ const MessageHandlers = {
     convertToXlsx(data, ExcelJS, { mode: 'single' });
     return { data };
   }),
-  [CONSTANTS.MESSAGES.GET_ORDER_DATA]: withImageBlocking(async () => ({ data: scrapeOrderData() })),
+  [CONSTANTS.MESSAGES.GET_ORDER_DATA]: withImageBlocking(async () => ({ data: await scrapeOrderDataWithRetry() })),
 };
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -217,6 +244,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  */
 function scrapeOrderData() {
   const orderItems = [];
+
+  const parseQuantityValue = (value) => {
+    if (!value) return "";
+    const match = value.match(/[\d.]+/);
+    return match ? match[0] : value;
+  };
+
+  const toAbsoluteUrl = (href) => {
+    if (!href) return "N/A";
+    try {
+      return new URL(href, window.location.origin).href;
+    } catch (_error) {
+      return href;
+    }
+  };
 
   // Query the hidden print items list which contains reliable product data
   // This list is always present in the DOM (hidden via .dn class) and is populated on page load.
@@ -251,6 +293,48 @@ function scrapeOrderData() {
       price,
     });
   });
+
+  // Fallback for Walmart.ca/localized layouts where print items are missing or incomplete.
+  const hasCompleteItems = orderItems.length > 0 && orderItems.every((item) => (
+    item.productName &&
+    item.price &&
+    item.productLink &&
+    item.productLink !== "N/A" &&
+    parseQuantityValue(item.quantity)
+  ));
+  const shouldUseVisibleItems = window.location.hostname.endsWith("walmart.ca") || !hasCompleteItems;
+
+  if (shouldUseVisibleItems) {
+    const visibleItems = [];
+    const visibleItemStacks = document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_STACK);
+
+    visibleItemStacks.forEach((stack) => {
+      const productName = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_NAME)?.innerText?.trim() || "";
+      const quantityText = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_QTY)?.innerText?.trim() || "";
+      const quantity = parseQuantityValue(quantityText);
+      const priceText = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_PRICE)?.innerText?.trim() || "";
+      const linkElement = stack.querySelector(CONSTANTS.SELECTORS.PRODUCT_LINK);
+      const productLink = toAbsoluteUrl(linkElement?.getAttribute("href") || linkElement?.href);
+
+      if (!productName && !quantity && !priceText) {
+        return;
+      }
+
+      visibleItems.push({
+        productName,
+        productLink,
+        deliveryStatus: CONSTANTS.TEXT.DELIVERY_LABEL,
+        quantity,
+        price: priceText,
+      });
+    });
+
+    // Prefer visible item extraction when it produces data (especially for Walmart.ca).
+    if (visibleItems.length > 0) {
+      orderItems.length = 0;
+      orderItems.push(...visibleItems);
+    }
+  }
 
   /**
    * Finds order number using fallback selectors.

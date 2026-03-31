@@ -10,6 +10,24 @@ let initialOrderPlaceholderHtml = "";
 const CACHE_INDICATOR_STYLE = 'cursor: pointer; margin-left: 6px; color: var(--primary); display: inline-flex; align-items: center; gap: 2px; font-size: 10px;';
 const CACHE_INDICATOR_SELECTOR = '[data-cache-indicator="true"]';
 
+function getWalmartOrdersBaseUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const ordersSegment = CONSTANTS.URLS.WALMART_ORDERS_PATH;
+    const ordersIndex = parsed.pathname.indexOf(ordersSegment);
+    if (
+      CONSTANTS.URLS.WALMART_ORDER_DOMAINS.includes(parsed.hostname) &&
+      ordersIndex !== -1
+    ) {
+      const ordersPathWithLocale = parsed.pathname.slice(0, ordersIndex + ordersSegment.length);
+      return `${parsed.protocol}//${parsed.hostname}${ordersPathWithLocale}`;
+    }
+  } catch (_error) {
+    // Ignore malformed URLs
+  }
+  return null;
+}
+
 // Global error handler for unhandled promise rejections
 window.addEventListener('unhandledrejection', (event) => {
   console.error('Unhandled promise rejection:', event.reason);
@@ -151,16 +169,19 @@ document.addEventListener("DOMContentLoaded", function () {
       const existingBanner = document.getElementById("offTabWarning");
       if (existingBanner) existingBanner.remove();
 
-      if (url && url.startsWith(CONSTANTS.URLS.WALMART_ORDERS)) {
-        const cleanUrl = url.replace(/\/$/, "");
-        const orderPath = cleanUrl.split("/orders/")[1];
-        AppState.currentOrdersUrl = null;
+      const ordersBaseUrl = getWalmartOrdersBaseUrl(url);
+      if (ordersBaseUrl) {
+        const parsedUrl = new URL(url);
+        const ordersPrefix = new URL(ordersBaseUrl).pathname;
+        const remainingPath = parsedUrl.pathname.slice(ordersPrefix.length);
+        const orderPath = remainingPath.startsWith("/") ? remainingPath.slice(1) : remainingPath;
+        AppState.currentOrdersUrl = ordersBaseUrl;
 
         // Re-enable all interactive elements
         setUIEnabled(true);
 
         // Check if there's an order number after /orders/
-        if (orderPath && /^\d{10,}$/.test(orderPath.split("?")[0])) {
+        if (orderPath && /^\d{10,}$/.test(orderPath)) {
           // Individual order page - do NOT use cache, only show current order
           const orderNumber = orderPath.split("?")[0];
           console.log("Valid order number:", orderNumber);
@@ -180,7 +201,7 @@ document.addEventListener("DOMContentLoaded", function () {
           document.getElementById("pageLimitGroup").style.display = "block";
           document.getElementById("buttonGroup").style.display = "flex";
           document.querySelector(".card").style.display = "block";
-          AppState.currentOrdersUrl = url;
+          AppState.currentOrdersUrl = ordersBaseUrl;
           loadCacheOnMainPage();
         }
       } else {
@@ -255,16 +276,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Switch to existing Walmart orders tab or open a new one
   function switchToWalmartOrdersTab() {
-    // First, try to find an existing Walmart orders tab
-    chrome.tabs.query({ url: `${CONSTANTS.URLS.WALMART_ORDERS}*` }, function(tabs) {
+    const walmartOrderTabPatterns = CONSTANTS.URLS.WALMART_ORDER_DOMAINS.flatMap((domain) => ([
+      `https://${domain}/orders*`,
+      `https://${domain}/*/orders*`,
+    ]));
+    // First, try to find an existing Walmart orders tab (US or Canada)
+    chrome.tabs.query({ url: walmartOrderTabPatterns }, function(tabs) {
       if (tabs && tabs.length > 0) {
         // Switch to the first matching tab
         chrome.tabs.update(tabs[0].id, { active: true });
         chrome.windows.update(tabs[0].windowId, { focused: true });
-      } else {
-        // No existing tab, open a new one
-        chrome.tabs.create({ url: CONSTANTS.URLS.WALMART_ORDERS });
+        return;
       }
+
+      // No existing tab, open a new one (US by default)
+      chrome.tabs.create({ url: CONSTANTS.URLS.WALMART_ORDERS });
     });
   }
 
@@ -648,8 +674,23 @@ function updateOrderCacheStatus(orderNumber) {
 const OrderDataFetcher = (() => {
   let downloadTab = null;
 
+  const isInvoiceDataUsable = (data) => {
+    if (!data || !Array.isArray(data.items) || data.items.length === 0) {
+      return false;
+    }
+
+    return data.items.some((item) => (
+      item?.productName &&
+      item?.quantity &&
+      item?.price &&
+      item?.productLink &&
+      item.productLink !== 'N/A'
+    ));
+  };
+
   const buildOrderUrls = (orderNumber) => {
-    const baseUrl = `${CONSTANTS.URLS.WALMART_ORDERS}/${orderNumber}`;
+    const ordersBaseUrl = AppState.currentOrdersUrl || CONSTANTS.URLS.WALMART_ORDERS;
+    const baseUrl = `${ordersBaseUrl}/${orderNumber}`;
     const isLongOrderNumber = orderNumber.length >= 20;
     if (isLongOrderNumber) {
       return [`${baseUrl}?storePurchase=true`, baseUrl];
@@ -732,9 +773,14 @@ const OrderDataFetcher = (() => {
   const fetchOrderData = async (orderNumber, options = {}) => {
     const cachedData = await getCachedInvoice(orderNumber);
     if (cachedData) {
-      console.log(`Using cached data for order ${orderNumber}`);
-      updateOrderCacheStatus(orderNumber);
-      return cachedData;
+      if (!isInvoiceDataUsable(cachedData)) {
+        console.warn(`Cached data for order ${orderNumber} is incomplete. Refetching fresh data.`);
+        await deleteInvoiceCache(orderNumber);
+      } else {
+        console.log(`Using cached data for order ${orderNumber}`);
+        updateOrderCacheStatus(orderNumber);
+        return cachedData;
+      }
     }
 
     const [primaryUrl, fallbackUrl] = buildOrderUrls(orderNumber);
