@@ -268,29 +268,45 @@ function scrapeOrderData() {
   });
 
   // Fallback for Walmart.ca/localized layouts where print items are missing or incomplete.
-  const hasCompleteItems = orderItems.some((item) => item.productName && item.price);
-  if (!hasCompleteItems) {
-    orderItems.length = 0;
+  const hasCompleteItems = orderItems.length > 0 && orderItems.every((item) => (
+    item.productName &&
+    item.price &&
+    item.productLink &&
+    item.productLink !== "N/A" &&
+    parseQuantityValue(item.quantity)
+  ));
+  const shouldUseVisibleItems = window.location.hostname.endsWith("walmart.ca") || !hasCompleteItems;
+
+  if (shouldUseVisibleItems) {
+    const visibleItems = [];
     const visibleItemStacks = document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_STACK);
 
     visibleItemStacks.forEach((stack) => {
       const productName = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_NAME)?.innerText?.trim() || "";
       const quantityText = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_QTY)?.innerText?.trim() || "";
+      const quantity = parseQuantityValue(quantityText);
       const priceText = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_PRICE)?.innerText?.trim() || "";
       const linkElement = stack.querySelector(CONSTANTS.SELECTORS.PRODUCT_LINK);
+      const productLink = toAbsoluteUrl(linkElement?.getAttribute("href") || linkElement?.href);
 
-      if (!productName && !quantityText && !priceText) {
+      if (!productName && !quantity && !priceText) {
         return;
       }
 
-      orderItems.push({
+      visibleItems.push({
         productName,
-        productLink: toAbsoluteUrl(linkElement?.getAttribute("href") || linkElement?.href),
+        productLink,
         deliveryStatus: CONSTANTS.TEXT.DELIVERY_LABEL,
-        quantity: parseQuantityValue(quantityText),
+        quantity,
         price: priceText,
       });
     });
+
+    // Prefer visible item extraction when it produces data (especially for Walmart.ca).
+    if (visibleItems.length > 0) {
+      orderItems.length = 0;
+      orderItems.push(...visibleItems);
+    }
   }
 
   /**
