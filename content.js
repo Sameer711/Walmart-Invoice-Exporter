@@ -191,6 +191,39 @@ const withImageBlocking = (handler) => async (request) => {
   return handler(request);
 };
 
+function hasUsableItemData(data) {
+  if (!data || !Array.isArray(data.items) || data.items.length === 0) {
+    return false;
+  }
+
+  return data.items.some((item) => (
+    item?.productName &&
+    item?.price &&
+    item?.quantity &&
+    item?.productLink &&
+    item.productLink !== "N/A"
+  ));
+}
+
+async function scrapeOrderDataWithRetry(maxAttempts = 10, delayMs = 400) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const data = scrapeOrderData();
+    const usable = hasUsableItemData(data);
+    scraperDebug('scrapeOrderDataWithRetry attempt', {
+      attempt,
+      usable,
+      itemCount: data?.items?.length || 0,
+      sample: data?.items?.[0] || null,
+    });
+
+    if (usable || attempt === maxAttempts) {
+      return data;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
 const MessageHandlers = {
   [CONSTANTS.MESSAGES.COLLECT_ORDER_NUMBERS]: withImageBlocking(handleCollectOrderNumbers),
   [CONSTANTS.MESSAGES.CLICK_NEXT_BUTTON]: withImageBlocking(handleClickNextButton),
@@ -201,7 +234,7 @@ const MessageHandlers = {
     convertToXlsx(data, ExcelJS, { mode: 'single' });
     return { data };
   }),
-  [CONSTANTS.MESSAGES.GET_ORDER_DATA]: withImageBlocking(async () => ({ data: scrapeOrderData() })),
+  [CONSTANTS.MESSAGES.GET_ORDER_DATA]: withImageBlocking(async () => ({ data: await scrapeOrderDataWithRetry() })),
 };
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
