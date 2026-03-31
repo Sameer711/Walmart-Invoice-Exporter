@@ -3,17 +3,6 @@
  * Handles DOM extraction and image blocking on Walmart order pages
  */
 
-// Toggle in page console: window.__WIE_DEBUG_SCRAPER__ = true
-if (typeof window.__WIE_DEBUG_SCRAPER__ === 'undefined') {
-  window.__WIE_DEBUG_SCRAPER__ = false;
-}
-
-function scraperDebug(...args) {
-  if (window.__WIE_DEBUG_SCRAPER__) {
-    console.log('[WIE_DEBUG]', ...args);
-  }
-}
-
 const ImageBlocker = (() => {
   let observer = null;
   let errorHandlerBound = false;
@@ -209,12 +198,6 @@ async function scrapeOrderDataWithRetry(maxAttempts = 10, delayMs = 400) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const data = scrapeOrderData();
     const usable = hasUsableItemData(data);
-    scraperDebug('scrapeOrderDataWithRetry attempt', {
-      attempt,
-      usable,
-      itemCount: data?.items?.length || 0,
-      sample: data?.items?.[0] || null,
-    });
 
     if (usable || attempt === maxAttempts) {
       return data;
@@ -239,7 +222,6 @@ const MessageHandlers = {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const action = request.action || request.method;
-  scraperDebug('onMessage received', { action, url: window.location.href });
   const handler = MessageHandlers[action];
   if (!handler) {
     return false;
@@ -262,7 +244,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  */
 function scrapeOrderData() {
   const orderItems = [];
-  scraperDebug('scrapeOrderData start', { url: window.location.href, hostname: window.location.hostname });
 
   const parseQuantityValue = (value) => {
     if (!value) return "";
@@ -283,10 +264,6 @@ function scrapeOrderData() {
   // This list is always present in the DOM (hidden via .dn class) and is populated on page load.
   // It provides a cleaner data structure compared to the complex interactive UI.
   const printItemsList = document.querySelectorAll(CONSTANTS.SELECTORS.PRINT_ITEMS);
-  scraperDebug('print selector count', {
-    selector: CONSTANTS.SELECTORS.PRINT_ITEMS,
-    count: printItemsList.length,
-  });
 
   printItemsList.forEach((item) => {
     const productName = item.querySelector(CONSTANTS.SELECTORS.PRINT_ITEM_NAME)?.innerText;
@@ -326,23 +303,10 @@ function scrapeOrderData() {
     parseQuantityValue(item.quantity)
   ));
   const shouldUseVisibleItems = window.location.hostname.endsWith("walmart.ca") || !hasCompleteItems;
-  scraperDebug('item extraction decision', {
-    printItemsCollected: orderItems.length,
-    hasCompleteItems,
-    shouldUseVisibleItems,
-    isWalmartCA: window.location.hostname.endsWith("walmart.ca"),
-  });
 
   if (shouldUseVisibleItems) {
     const visibleItems = [];
     const visibleItemStacks = document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_STACK);
-    scraperDebug('visible selector counts', {
-      stackCount: visibleItemStacks.length,
-      productNameCount: document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_NAME).length,
-      qtyCount: document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_QTY).length,
-      priceCount: document.querySelectorAll(CONSTANTS.SELECTORS.VISIBLE_ITEM_PRICE).length,
-      linkCount: document.querySelectorAll(CONSTANTS.SELECTORS.PRODUCT_LINK).length,
-    });
 
     visibleItemStacks.forEach((stack) => {
       const productName = stack.querySelector(CONSTANTS.SELECTORS.VISIBLE_ITEM_NAME)?.innerText?.trim() || "";
@@ -369,14 +333,6 @@ function scrapeOrderData() {
     if (visibleItems.length > 0) {
       orderItems.length = 0;
       orderItems.push(...visibleItems);
-      scraperDebug('using visible items', {
-        count: visibleItems.length,
-        firstItem: visibleItems[0],
-      });
-    } else {
-      scraperDebug('visible fallback produced no items; keeping print-derived data', {
-        printCount: orderItems.length,
-      });
     }
   }
 
@@ -461,11 +417,6 @@ function scrapeOrderData() {
     }
   });
   const address = addressParts.slice(0, 2).join(', ');
-  scraperDebug('scrapeOrderData done', {
-    orderNumber,
-    itemsCount: orderItems.length,
-    sampleItem: orderItems[0] || null,
-  });
 
   return {
     orderNumber,
